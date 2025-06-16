@@ -1,20 +1,44 @@
-// src/models/Conservation.ts
-import { getDB } from '../database';
-import { Conversation, Message, Platform, MessageType } from '../types/types';
+// src/models/Conservation.ts - KESİN VE DOĞRU HALE GETİRİLDİ
+import { getDB2 } from '../database'; // database bağlantısının yolunu kontrol et
+import { Conversation, Message, Platform, MessageType } from '../types/types'; // tiplerin yolunu kontrol et
 import { RowDataPacket, ResultSetHeader } from 'mysql2';
-import { v4 as uuidv4 } from 'uuid'; // uuid import edildi
+import { v4 as uuidv4 } from 'uuid';
 
 // MySQL'den dönen RowDataPacket'ı kendi tiplerimize dönüştürmek için yardımcı arayüzler
 interface ConversationRow extends RowDataPacket, Conversation {}
-interface MessageRow extends RowDataPacket, Message {}
+// MessageRow'da veritabanından gelen sütun isimlerine göre eşleme yapıyoruz
+interface MessageRow extends RowDataPacket {
+    id: string;
+    conversation_id: string;
+    sender_name: string;
+    content: string;
+    timestamp: Date; // MySQL'den Date objesi olarak gelebilir
+    is_outbound: number; // MySQL'de boolean genelde tinyint(1) olarak tutulur (0 veya 1)
+    platform: string;
+    type: string; // Veritabanındaki 'type' kolonu (örn: 'text', 'image', 'audio')
+    media_url?: string | null; // Veritabanındaki 'media_url' kolonu, null veya undefined olabilir
+}
 
-// Sabit veritabanı isimleri
+// Sabit veritabanı ismi
 const CEBIMEDYA_DB = 'cebimedya';
 
-// Kullanıcının tüm konuşmalarını platforma göre veya hepsi birden çekme
+// Yardımcı fonksiyon: Platforma göre doğru mesaj tablosu adını döndürür
+const getMessageTableName = (platform: Platform): string => {
+    switch (platform) {
+        case 'whatsapp':
+            return 'messages_whatsapp';
+        case 'instagram':
+            return 'messages_instagram';
+        case 'messenger': 
+            return 'messages_messenger';
+        default:
+            throw new Error(`Desteklenmeyen platform: ${platform}`);
+    }
+};
+
+// Kullanıcının tüm konuşmalarını platforma göre veya hepsi birden çeker
 export const getConversationsByUserId = async (userId: string, platform?: Platform): Promise<Conversation[]> => {
-    const db = getDB();
-    // Konuşmalar her zaman ana dashboard veritabanında tutulur
+    const db = getDB2();
     let query = `SELECT * FROM \`${CEBIMEDYA_DB}\`.conversations WHERE user_id = ?`;
     const params: (string | number)[] = [userId];
 
@@ -22,45 +46,79 @@ export const getConversationsByUserId = async (userId: string, platform?: Platfo
         query += ' AND platform = ?';
         params.push(platform);
     }
-    query += ' ORDER BY updated_at DESC'; // En son güncellenenler başta olsun
+    query += ' ORDER BY updated_at DESC'; // Son güncellenen en üstte olacak
 
     const [rows] = await db.execute<ConversationRow[]>(query, params);
     return rows.map(row => ({
-        id: row.id,
-        user_id: row.user_id as unknown as number,
-        platform: row.platform as Platform,
-        contact_name: row.contact_name,
-        contact_phone_number: row.contact_phone_number,
-        contact_instagram_id: row.contact_instagram_id,
-        last_message_content: row.last_message_content,
-        last_message_timestamp: row.last_message_timestamp,
-        unread_count: row.unread_count,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-    }));
+    id: row.id,
+    user_id: row.user_id,
+    platform: row.platform as Platform,
+    contact_name: row.contact_name,
+    contact_phone_number: row.contact_phone_number,
+    contact_instagram_id: row.contact_instagram_id,
+    last_message_content: row.last_message_content,
+    last_message_timestamp: row.last_message_timestamp || new Date(row.last_message_timestamp).toISOString(),
+    unread_count: row.unread_count,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+}));
 };
 
-// Belirli bir konuşmaya ait mesajları çekme
-// Bu fonksiyon messaging_dashboard_db'deki messages_whatsapp tablosunu kullanır
-export const getMessagesByConversationId = async (conversationId: string): Promise<Message[]> => { // userDatabaseName parametresi kaldırıldı
-    const db = getDB();
-    const query = `SELECT * FROM \`${CEBIMEDYA_DB}\`.messages_whatsapp WHERE conversation_id = ? ORDER BY timestamp ASC`;
+// Belirli bir konuşmanın son mesaj içeriğini çeker
+export async function getLastMessageContentByConversationId(conversationId: string): Promise<{ content: string } | null> {
+    const db = getDB2();
+    interface ContentRow extends RowDataPacket {
+        content: string;
+    }
+
+    const [rows] = await db.query<ContentRow[]>(
+        `SELECT last_message_content AS content
+         FROM \`${CEBIMEDYA_DB}\`.conversations
+         WHERE id = ? 
+         LIMIT 1`,
+        [conversationId]
+    );
+
+    return rows.length > 0 ? rows[0] : null;
+}
+
+// Belirli bir konuşmaya ait mesajları platforma göre çeker
+export const getMessagesByConversationId = async (conversationId: string, platform: Platform): Promise<Message[]> => {
+    const db = getDB2();
+    const tableName = getMessageTableName(platform); // Platforma göre doğru tabloyu seç
+
+    const query = `
+        SELECT 
+            id, 
+            conversation_id, 
+            sender_name, 
+            content, 
+            timestamp, 
+            is_outbound, 
+            platform, 
+            type, 
+            media_url 
+        FROM \`${CEBIMEDYA_DB}\`.${tableName} 
+        WHERE conversation_id = ? 
+        ORDER BY timestamp ASC`; 
+
     const [rows] = await db.execute<MessageRow[]>(query, [conversationId]);
+
     return rows.map(row => ({
         id: row.id,
         conversation_id: row.conversation_id,
         sender_name: row.sender_name,
         content: row.content,
-        timestamp: row.timestamp,
-        is_outbound: Boolean(row.is_outbound),
+        timestamp: new Date(row.timestamp).toISOString(), // ISO string formatına dönüştür
+        is_outbound: Boolean(row.is_outbound), // Tinyint(1)'den boolean'a dönüştür
         platform: row.platform as Platform,
-        message_type: row.type as MessageType, // 'type' kolonunu 'message_type' olarak eşle
-        image_url: row.media_url, // 'media_url' kolonunu 'image_url' olarak eşle
-        audio_url: row.media_url, // 'media_url' kolonunu 'audio_url' olarak eşle (eğer backend tek bir media_url döndürüyorsa)
+        message_type: row.type as MessageType,
+        image_url: row.media_url || undefined, // null ise undefined yap
+        audio_url: row.media_url || undefined, // null ise undefined yap
     }));
 };
 
-// Yeni mesaj oluşturma fonksiyonu (hem messaging_dashboard_db hem de cebimedya.message_buffer için)
+// Yeni mesaj oluşturma fonksiyonu (hem ilgili mesaj tablosu hem de message_buffer için)
 export const createMessage = async (
     conversationId: string,
     senderName: string,
@@ -71,10 +129,11 @@ export const createMessage = async (
     imageUrl: string | null = null,
     audioUrl: string | null = null
 ): Promise<string> => {
-    const db = getDB();
-    const messageId = uuidv4(); // Mesaj için benzersiz bir ID oluştur
-    const now = new Date(); // Doğrudan Date objesi kullanıyoruz
+    const db = getDB2();
+    const messageId = uuidv4();
+    const now = new Date();
 
+    // Medya URL'ini mesaj tipine göre belirle
     let mediaUrl: string | null = null;
     if (messageType === 'image' && imageUrl) {
         mediaUrl = imageUrl;
@@ -82,9 +141,11 @@ export const createMessage = async (
         mediaUrl = audioUrl;
     }
 
-    // messages_whatsapp tablosuna mesajı kaydet (her zaman ana dashboard DB'ye)
+    const tableName = getMessageTableName(platform); // Platforma göre doğru tabloyu seç
+
+    // Ana mesaj tablosuna ekleme
     const insertMessageQuery = `
-        INSERT INTO \`${CEBIMEDYA_DB}\`.messages_whatsapp
+        INSERT INTO \`${CEBIMEDYA_DB}\`.${tableName}
         (id, conversation_id, sender_name, content, is_outbound, timestamp, platform, type, media_url)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
@@ -94,46 +155,44 @@ export const createMessage = async (
         senderName,
         content,
         isOutbound,
-        now, // Doğrudan Date objesi parametre olarak geçiliyor
+        now,
         platform,
         messageType,
         mediaUrl
     ];
     await db.execute<ResultSetHeader>(insertMessageQuery, insertMessageParams);
 
-    // Eğer platform 'whatsapp' ise, cebimedya.message_buffer tablosuna da kaydet
+    // Eğer platform WhatsApp ise, message_buffer tablosuna da ekle
     if (platform === 'whatsapp') {
-        const cebimedyaDb = getDB(); // Aynı veritabanı bağlantı havuzunu kullanabiliriz
         const insertBufferQuery = `
             INSERT INTO \`${CEBIMEDYA_DB}\`.message_buffer
             (id, session_id, message_type, message_text, image_url, audio_url, timestamp, is_processed)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const insertBufferParams = [
-            uuidv4(), // Buffer mesajı için ayrı bir ID
-            conversationId, // session_id olarak conversation_id kullanıldı
+            uuidv4(), // Buffer için yeni bir UUID oluştur
+            conversationId,
             messageType,
             content,
             imageUrl,
             audioUrl,
-            now, // Aynı Date objesini buffer için de kullanıyoruz
-            false // is_processed varsayılan olarak false
+            now,
+            false // Başlangıçta işlenmedi olarak işaretle
         ];
-        await cebimedyaDb.execute<ResultSetHeader>(insertBufferQuery, insertBufferParams);
+        await db.execute<ResultSetHeader>(insertBufferQuery, insertBufferParams);
     }
 
-    return messageId; // Oluşturulan mesajın ID'sini döndür
+    return messageId;
 };
 
-// Konuşmanın son mesajını güncelle
+// Konuşmanın son mesajını ve zaman damgasını günceller, okunmamış sayısını artırır
 export const updateConversationLastMessage = async (
     conversationId: string,
     lastMessageContent: string,
     lastMessageTimestamp: Date,
     incrementUnreadCount: boolean = false
-): Promise<boolean> => { // userDatabaseName parametresi kaldırıldı
-    const db = getDB();
-    // Konuşmalar her zaman ana dashboard veritabanında güncellenir
+): Promise<boolean> => {
+    const db = getDB2();
     let query = `UPDATE \`${CEBIMEDYA_DB}\`.conversations SET last_message_content = ?, last_message_timestamp = ?, updated_at = NOW()`;
     const params: (string | Date | number)[] = [lastMessageContent, lastMessageTimestamp];
 
@@ -147,8 +206,7 @@ export const updateConversationLastMessage = async (
     return result.affectedRows > 0;
 };
 
-
-// Yeni bir konuşma oluşturma
+// Yeni bir konuşma oluşturur
 export const createConversation = async (
     userId: string,
     conversationId: string,
@@ -159,8 +217,7 @@ export const createConversation = async (
     contactPhoneNumber?: string,
     contactInstagramId?: string
 ): Promise<string> => {
-    const db = getDB();
-    // Konuşmalar her zaman ana dashboard veritabanında oluşturulur
+    const db = getDB2();
     const query = `
         INSERT INTO \`${CEBIMEDYA_DB}\`.conversations
         (id, user_id, platform, contact_name, contact_phone_number, contact_instagram_id, last_message_content, last_message_timestamp, unread_count, created_at, updated_at)
@@ -171,21 +228,20 @@ export const createConversation = async (
         userId,
         platform,
         contactName,
-        contactPhoneNumber || null, // undefined yerine null gönder
-        contactInstagramId || null, // undefined yerine null gönder
+        contactPhoneNumber || null, // null olarak kaydet eğer boşsa
+        contactInstagramId || null, // null olarak kaydet eğer boşsa
         lastMessageContent,
-        lastMessageTimestamp, // Direkt Date objesi geçiliyor
-        1 // Yeni konuşma başlatıldığında okunmamış mesaj sayısı 1 olabilir
+        lastMessageTimestamp,
+        1 // Yeni konuşma başlatıldığında başlangıçta 1 okunmamış mesaj
     ];
 
     await db.execute<ResultSetHeader>(query, params);
     return conversationId;
 };
 
-// Kullanıcının konuşma sayılarını platforma göre çekme
+// Kullanıcının konuşma sayılarını platforma göre çeker
 export const getConversationCountsByUserId = async (userId: string): Promise<{ platform: Platform; count: number }[]> => {
-    const db = getDB();
-    // Konuşma sayıları her zaman ana dashboard veritabanından çekilir
+    const db = getDB2();
     const query = `SELECT platform, COUNT(id) as count FROM \`${CEBIMEDYA_DB}\`.conversations WHERE user_id = ? GROUP BY platform`;
     const [rows] = await db.execute<RowDataPacket[]>(query, [userId]);
     return rows.map(row => ({
@@ -194,15 +250,14 @@ export const getConversationCountsByUserId = async (userId: string): Promise<{ p
     }));
 };
 
-// Telefon numarasına göre konuşma bulma
+// Telefon numarasına göre konuşma bulur (WhatsApp için)
 export const findConversationByContactPhoneNumber = async (userId: string, phoneNumber: string): Promise<Conversation | undefined> => {
-    const db = getDB();
-    // Konuşmalar her zaman ana dashboard veritabanında aranır
+    const db = getDB2();
     const query = `SELECT * FROM \`${CEBIMEDYA_DB}\`.conversations WHERE user_id = ? AND contact_phone_number = ? AND platform = 'whatsapp'`;
     const [rows] = await db.execute<ConversationRow[]>(query, [userId, phoneNumber]);
     return rows[0] ? {
         id: rows[0].id,
-        user_id: rows[0].user_id as unknown as number,
+        user_id: rows[0].user_id,
         platform: rows[0].platform as Platform,
         contact_name: rows[0].contact_name,
         contact_phone_number: rows[0].contact_phone_number,
@@ -215,15 +270,14 @@ export const findConversationByContactPhoneNumber = async (userId: string, phone
     } : undefined;
 };
 
-// Instagram ID'sine göre konuşma bulma
+// Instagram ID'sine göre konuşma bulur (Instagram için)
 export const findConversationByContactInstagramId = async (userId: string, instagramId: string): Promise<Conversation | undefined> => {
-    const db = getDB();
-    // Konuşmalar her zaman ana dashboard veritabanında aranır
+    const db = getDB2();
     const query = `SELECT * FROM \`${CEBIMEDYA_DB}\`.conversations WHERE user_id = ? AND contact_instagram_id = ? AND platform = 'instagram'`;
     const [rows] = await db.execute<ConversationRow[]>(query, [userId, instagramId]);
     return rows[0] ? {
         id: rows[0].id,
-        user_id: rows[0].user_id as unknown as number,
+        user_id: rows[0].user_id,
         platform: rows[0].platform as Platform,
         contact_name: rows[0].contact_name,
         contact_phone_number: rows[0].contact_phone_number,

@@ -1,5 +1,5 @@
 // src/index.ts
-import express, { Request, Response } from 'express'; // NextFunction'ı ekledik
+import express from 'express'; // NextFunction'ı ekledik
 import cors from 'cors';
 import { PORT } from './config';
 import { connectDB }  from './database';
@@ -25,20 +25,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/agent-status', agentStatusRoutes);
 
-// --- GLOBAL HATA YAKALAMA MIDDLEWARE'İ ---
-// Hata yakalama middleware'ine `next: NextFunction` parametresini ekledik
-app.use((err: Error, req: Request, res: Response) => {
-    console.error(`[ERROR] Sunucu hatası: ${req.method} ${req.originalUrl} (IP: ${req.ip}), Hata:`, err);
-
-    if (process.env.NODE_ENV === 'development') {
-        res.status(500).json({
-            message: err.message,
-            stack: err.stack,
-        });
-    } else {
-        res.status(500).json({ message: 'Bir sunucu hatası oluştu.' });
-    }
-});
 
 
 app.listen(PORT, () => {

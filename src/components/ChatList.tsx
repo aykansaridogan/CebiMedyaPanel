@@ -1,4 +1,5 @@
-import React from 'react';
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import React, { useState, useEffect } from 'react';
 import { Conversation, Platform } from '../types';
 
 interface ChatListProps {
@@ -26,13 +27,22 @@ const ChatList: React.FC<ChatListProps> = ({
     messenger: 'Messenger'
   };
 
-  // Zaman damgasını kısa formata çeviren yardımcı fonksiyon
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const formatLastMessageTimestamp = (timestamp: string): string => {
     try {
       const date = new Date(timestamp);
-      if (isNaN(date.getTime())) {
-        return "Geçersiz Tarih"; // Hatalı tarih için dönüş
-      }
+      if (isNaN(date.getTime())) return "Geçersiz Tarih";
+
       const now = new Date();
       const diffTime = Math.abs(now.getTime() - date.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -46,8 +56,7 @@ const ChatList: React.FC<ChatListProps> = ({
       } else {
         return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'numeric' });
       }
-    } catch (e) {
-      console.error("Tarih formatlama hatası:", e);
+    } catch {
       return "Hata";
     }
   };
@@ -75,7 +84,7 @@ const ChatList: React.FC<ChatListProps> = ({
           {platformNames[platform]} Mesajları
         </h2>
       </div>
-      
+
       <div className="space-y-1 px-2 pb-4">
         {conversations.map((conversation) => (
           <button
@@ -87,38 +96,28 @@ const ChatList: React.FC<ChatListProps> = ({
             `}
           >
             <div className="flex items-center space-x-3">
-              {/* Avatar kaldırıldı, yerine sadece renkli nokta kalabilir veya bu div de kaldırılabilir */}
               <div className="relative flex-shrink-0">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white text-xl font-bold ${platformColors[conversation.platform]}`}>
                   {conversation.contact_name ? conversation.contact_name.charAt(0).toUpperCase() : 'U'}
                 </div>
-                {/* Durum noktası veya platform ikonu istenirse burada kalabilir */}
                 <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full ${platformColors[conversation.platform]} border-2 border-white`} />
               </div>
-              
+
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-medium text-gray-900 truncate">
-                    {conversation.contact_name}
-                  </h3>
-                  <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
-                    {formatLastMessageTimestamp(conversation.last_message_time)}
-                  </span>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600 truncate">
-                    {conversation.last_message_time}
-                  </p>
-                  {conversation.unread_count > 0 && (
-                    <span className={`
-                      ml-2 px-2 py-1 rounded-full text-xs font-medium text-white flex-shrink-0
-                      ${platformColors[conversation.platform]}
-                    `}>
-                      {conversation.unread_count > 9 ? '9+' : conversation.unread_count}
-                    </span>
-                  )}
-                </div>
+  <h3 className={`truncate ${conversation.unread_count > 0 ? 'font-semibold text-gray-900' : 'font-normal text-gray-700'}`}>
+    {conversation.contact_name}
+  </h3>
+  <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
+    {formatLastMessageTimestamp(conversation.last_message_time)}
+  </span>
+</div>
+
+{conversation.last_message_time && (
+  <p className={`text-sm truncate mt-1 ${conversation.unread_count > 0 ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
+    {conversation.last_message_time}
+  </p>
+)}
               </div>
             </div>
           </button>

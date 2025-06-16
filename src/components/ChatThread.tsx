@@ -4,32 +4,30 @@ import { Message } from '../types';
 interface ChatThreadProps {
   messages: Message[];
   contactName: string;
-  // contactAvatar: string; // KALDIRILDI
 }
 
-const ChatThread: React.FC<ChatThreadProps> = ({ messages, contactName }) => { // contactAvatar prop'tan kaldırıldı
+const ChatThread: React.FC<ChatThreadProps> = ({ messages, contactName }) => {
+  // Zamanı "HH:mm" formatında TR locale göre biçimlendirir
   const formatTime = (timestamp: string) => {
     try {
       const date = new Date(timestamp);
-      if (isNaN(date.getTime())) {
-        return "Geçersiz Zaman"; // Hatalı tarih için dönüş
-      }
+      if (isNaN(date.getTime())) return "Geçersiz Zaman";
       return date.toLocaleTimeString('tr-TR', {
-        hour: 'numeric',
+        hour: '2-digit',
         minute: '2-digit',
-        hour12: false
+        hour12: false,
       });
-    } catch (e) {
-      console.error("Zaman formatlama hatası:", e);
+    } catch {
       return "Hata";
     }
   };
 
-  // Mesaj içeriğini tipine göre render eden yardımcı bileşen
+  // Mesaj içeriğine göre uygun JSX render edilir
   const renderMessageContent = (message: Message) => {
     switch (message.message_type) {
       case 'text':
         return <p className="text-sm leading-relaxed">{message.content}</p>;
+
       case 'image':
         return (
           <div>
@@ -38,13 +36,16 @@ const ChatThread: React.FC<ChatThreadProps> = ({ messages, contactName }) => { /
                 src={message.image_url}
                 alt={message.content || "Resim"}
                 className="max-w-full h-auto rounded-lg mb-2"
-                style={{ maxHeight: '200px' }}
-                onError={(e) => { e.currentTarget.src = 'https://placehold.co/200x150/e0e0e0/505050?text=Resim+Y%C3%BCklenemedi'; }}
+                style={{ maxHeight: 200 }}
+                onError={e => {
+                  e.currentTarget.src = 'https://placehold.co/200x150/e0e0e0/505050?text=Resim+Yüklenemedi';
+                }}
               />
             )}
             {message.content && <p className="text-sm leading-relaxed">{message.content}</p>}
           </div>
         );
+
       case 'audio':
         return (
           <div>
@@ -56,12 +57,13 @@ const ChatThread: React.FC<ChatThreadProps> = ({ messages, contactName }) => { /
             )}
           </div>
         );
+
       default:
         return <p className="text-sm leading-relaxed">{message.content || `[${message.message_type} Mesajı]`}</p>;
     }
   };
 
-
+  // Mesaj yoksa bilgilendirme ekranı
   if (messages.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -78,13 +80,13 @@ const ChatThread: React.FC<ChatThreadProps> = ({ messages, contactName }) => { /
     );
   }
 
+  // Mesaj listesi render
   return (
     <div className="flex flex-col h-full">
-      {/* Chat Header - Avatar kaldırıldı */}
+      {/* Header - avatar yerine baş harfi */}
       <div className="flex items-center p-4 border-b border-gray-200 bg-white">
-        {/* Avatar img tag'i KALDIRILDI, yerine baş harfi gösteren div konuldu */}
         <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-200 text-gray-600 font-bold text-lg mr-3">
-            {contactName ? contactName.charAt(0).toUpperCase() : 'U'}
+          {contactName ? contactName.charAt(0).toUpperCase() : 'U'}
         </div>
         <div>
           <h2 className="font-semibold text-gray-900">{contactName}</h2>
@@ -92,36 +94,39 @@ const ChatThread: React.FC<ChatThreadProps> = ({ messages, contactName }) => { /
         </div>
       </div>
 
-      {/* Messages */}
+      {/* Mesajlar */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (
           <div
             key={message.id}
             className={`flex ${message.is_outbound ? 'justify-end' : 'justify-start'}`}
           >
-            <div className={`flex items-end space-x-2 max-w-xs lg:max-w-md xl:max-w-lg ${message.is_outbound ? 'flex-row-reverse space-x-reverse' : ''}`}>
-              {/* Sadece gelen mesajlar için karşı tarafın avatarı kaldırıldı, yerine baş harfi gösteren div konuldu */}
+            <div
+              className={`flex items-end space-x-2 max-w-xs lg:max-w-md xl:max-w-lg ${
+                message.is_outbound ? 'flex-row-reverse space-x-reverse' : ''
+              }`}
+            >
+              {/* Gelen mesajlar için baş harfi göster */}
               {!message.is_outbound && (
                 <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-200 text-gray-600 text-xs font-bold flex-shrink-0">
-                    {contactName ? contactName.charAt(0).toUpperCase() : 'U'}
+                  {contactName ? contactName.charAt(0).toUpperCase() : 'U'}
                 </div>
               )}
-              
+
               <div
-                className={`
-                  px-4 py-2 rounded-2xl relative group
-                  ${message.is_outbound
+                className={`px-4 py-2 rounded-2xl relative group ${
+                  message.is_outbound
                     ? 'bg-blue-500 text-white rounded-br-md'
                     : 'bg-gray-100 text-gray-900 rounded-bl-md'
-                  }
-                `}
+                }`}
               >
-                {renderMessageContent(message)} 
+                {renderMessageContent(message)}
 
-                <div className={`
-                  text-xs mt-1 opacity-70
-                  ${message.is_outbound ? 'text-blue-100' : 'text-gray-500'}
-                `}>
+                <div
+                  className={`text-xs mt-1 opacity-70 ${
+                    message.is_outbound ? 'text-blue-100' : 'text-gray-500'
+                  }`}
+                >
                   {formatTime(message.timestamp)}
                 </div>
               </div>
