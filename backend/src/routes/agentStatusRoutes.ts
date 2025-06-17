@@ -1,63 +1,85 @@
-// src/routes/agentStatusRoutes.ts
+// src/routes/agentStatusRoutes.ts (Typescript 'any' hatası giderilmiş hali)
 import { Router, Request, Response, NextFunction } from 'express';
-// import { authenticateToken } from '../middleware/auth'; // <<< BU SATIRI SİLİN
-import { getAgentStatusByUserIdAndPlatform, updateAgentStatus } from '../models/AgentStatus'; // Model importları
-import { Platform } from '../types/types'; // Platform tipi
+// import { authenticateToken } from '../middleware/auth'; // Kimlik doğrulama gerekiyorsa aktif et
+
+// MySQL bağlantı havuzunu getDB2() fonksiyonu üzerinden import et
+import { getDB2 } from '../database'; 
+import { RowDataPacket, ResultSetHeader, FieldPacket } from 'mysql2'; // <<< YENİ İMPORTLAR BURADA!
 
 const router = Router();
 
-// Tüm rotalar için kimlik doğrulamayı etkinleştir
-// router.use(authenticateToken); // <<< BU SATIRI SİLİN
+// AI'ın GLOBAL durumunu temsil eden sabit kullanıcı ID'si ve platform.
+const GLOBAL_AI_USER_ID_TO_USE = 1;
+const GLOBAL_AI_PLATFORM = 'whatsapp'; // Bu, GLOBAL durumu temsil eden platformdur.
+
+// Tüm rotalar için kimlik doğrulamayı etkinleştir (gerekiyorsa aktif et)
+// router.use(authenticateToken); 
 
 // Agent durumunu çekme
 router.get('/:platform', async (req: Request, res: Response, next: NextFunction) => {
-  // NOT: req.user artık JWT ile doldurulmadığı için
-  // bu userId'yi başka bir yerden almanız gerekecek.
-  // Geçici olarak mock bir ID kullanabiliriz.
-  // const userId = req.user?.id; 
-  const userId = "1"; // <<< GEÇİCİ OLARAK MOCK BİR KULLANICI ID'Sİ EKLEYİN
-
-  const platform = req.params.platform as Platform;
-
-  if (!userId) {
-    res.status(401).json({ message: 'Kullanıcı kimliği bulunamadı.' });
-    return;
-  }
+  const db = getDB2(); 
+  const userIdToQuery = GLOBAL_AI_USER_ID_TO_USE;
+  const platformToQuery = GLOBAL_AI_PLATFORM;
 
   try {
-    const status = await getAgentStatusByUserIdAndPlatform(userId, platform);
-    res.json({ userId, platform, status });
+    // SELECT sorgusu için RowDataPacket[] ve FieldPacket[] döndüğünü belirttik.
+    // Sadece ilk elemanı (rows) almak için [rows] kullandık.
+    const [rows]: [RowDataPacket[], FieldPacket[]] = await db.execute( 
+      `SELECT status FROM agent_statuses WHERE user_id = ? AND platform = ?`,
+      [userIdToQuery, platformToQuery]
+    );
+
+    let currentStatus: string | null = null;
+    if (rows.length > 0) {
+      // rows[0].status'ın doğru tipte olduğundan emin olmak için tip kontrolü
+      const statusFromDb = (rows[0] as { status: string }).status; 
+      currentStatus = statusFromDb;
+    } else {
+      currentStatus = 'inactive';
+    }
+
+    const booleanStatus = (currentStatus === 'active');
+
+    res.json({ success: true, userId: userIdToQuery, platform: platformToQuery, status: booleanStatus });
   } catch (error) {
-    console.error('Agent durumu çekilirken hata:', error);
+    console.error('Global Agent durumu çekilirken hata:', error);
     next(error);
   }
 });
 
 // Agent durumunu güncelleme
 router.post('/:platform', async (req: Request, res: Response, next: NextFunction) => {
-  // NOT: req.user artık JWT ile doldurulmadığı için
-  // bu userId'yi başka bir yerden almanız gerekecek.
-  // Geçici olarak mock bir ID kullanabiliriz.
-  // const userId = req.user?.id; 
-  const userId = "1"; // <<< GEÇİCİ OLARAK MOCK BİR KULLANICI ID'Sİ EKLEYİN
+  const db = getDB2(); 
+  const userIdToUpdate = GLOBAL_AI_USER_ID_TO_USE;
+  const platformToUpdate = GLOBAL_AI_PLATFORM;
 
-  const platform = req.params.platform as Platform;
-  const { status } = req.body; // status: boolean
+  const { status: booleanStatus } = req.body; 
 
-  if (!userId || typeof status !== 'boolean') { // status'un boolean olduğunu kontrol et
-    res.status(400).json({ message: 'Kullanıcı kimliği veya geçersiz durum bilgisi.' });
-    return;
+  if (typeof booleanStatus !== 'boolean') {
+    return res.status(400).json({ success: false, message: 'Geçersiz durum bilgisi. Durum boolean (true/false) olmalı.' });
   }
 
+  const newStatusString = booleanStatus ? 'active' : 'inactive';
+
   try {
-    const success = await updateAgentStatus(userId, platform, status);
-    if (success) {
-      res.json({ message: 'Agent durumu başarıyla güncellendi.', userId, platform, status });
-    } else {
-      res.status(500).json({ message: 'Agent durumu güncellenirken bir hata oluştu.' });
+    const updateQuery = `
+      UPDATE agent_statuses SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = ? AND platform = ?;
+    `;
+    // UPDATE sorgusu için ResultSetHeader ve FieldPacket[] döndüğünü belirttik.
+    const [updateResult]: [ResultSetHeader, FieldPacket[]] = await db.execute(updateQuery, [newStatusString, userIdToUpdate, platformToUpdate]); 
+
+    if (updateResult.affectedRows === 0) {
+      const insertQuery = `
+        INSERT INTO agent_statuses (user_id, platform, status) VALUES (?, ?, ?);
+      `;
+      // INSERT sorgusu için ResultSetHeader ve FieldPacket[] döndüğünü belirttik.
+      await db.execute<ResultSetHeader>(insertQuery, [userIdToUpdate, platformToUpdate, newStatusString]); // Type'ı direkt execute içine verdik.
     }
+
+    res.json({ success: true, message: 'Agent durumu başarıyla güncellendi.', userId: userIdToUpdate, platform: platformToUpdate, status: booleanStatus });
   } catch (error) {
-    console.error('Agent durumu güncellenirken hata:', error);
+    console.error('Global Agent durumu güncellenirken hata:', error);
     next(error);
   }
 });

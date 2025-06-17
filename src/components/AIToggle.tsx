@@ -1,13 +1,14 @@
-// src/components/AIToggle.tsx
+// src/components/AIToggle.tsx (Güncellenmiş hali - Global Kontrole Uyumlu)
 import React, { useState, useEffect } from 'react';
 import { Bot, User, Loader2 } from 'lucide-react';
 import { Platform } from '../types';
-import { getAgentStatus } from '../services/api'; // api'den import et
+// getAgentStatus ve updateAgentStatus'u api servisinden import et
+import { getAgentStatus, updateAgentStatus } from '../services/api'; // <<< updateAgentStatus eklendi
 
 interface AIToggleProps {
-  platform: Platform;
+  platform: Platform; // Bu prop hala var, API çağrısına platformu gönderecek
   onStatusChange?: (platform: Platform, status: boolean) => void;
-  isSidebarCollapsed?: boolean; // Yeni eklendi
+  isSidebarCollapsed?: boolean;
 }
 
 const AIToggle: React.FC<AIToggleProps> = ({ platform, onStatusChange, isSidebarCollapsed = false }) => {
@@ -15,22 +16,27 @@ const AIToggle: React.FC<AIToggleProps> = ({ platform, onStatusChange, isSidebar
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Load initial status
+  // İlk durumu yükle
   useEffect(() => {
     const loadStatus = async () => {
       setIsLoading(true);
       try {
-        const { status } = await getAgentStatus(platform); // API çağrısı
+        // API çağrısı: Backend tarafında user_id=1 ve platform='whatsapp' sabitine bakılacak.
+        // Bu nedenle AIToggle'a verilen 'platform' prop'u ne olursa olsun,
+        // arka planda hep aynı global durum okunur.
+        const { status } = await getAgentStatus(platform); 
         setIsEnabled(status);
       } catch (error) {
         console.error('AI durumu yüklenirken hata:', error);
+        // Hata durumunda kullanıcıyı bilgilendir
+        alert('AI durumu yüklenirken bir hata oluştu.');
       } finally {
         setIsLoading(false);
       }
     };
 
     loadStatus();
-  }, [platform]); // userId artık gerekmiyor, çünkü token üzerinden kullanıcı bilgisi alınıyor
+  }, [platform]); // 'platform' değiştiğinde tekrar yükle (UI'da tek AIToggle kullanılacaksa genelde değişmez)
 
   const handleToggle = async () => {
     if (isUpdating) return;
@@ -38,11 +44,15 @@ const AIToggle: React.FC<AIToggleProps> = ({ platform, onStatusChange, isSidebar
     setIsUpdating(true);
     try {
       const newStatus = !isEnabled;
-      const success = await updateAgentStatus(platform, newStatus); // API çağrısı
-      
+      // API çağrısı: Backend tarafında user_id=1 ve platform='whatsapp' sabitine güncellenecek.
+      const success = await updateAgentStatus(platform, newStatus); 
+
       if (success) {
         setIsEnabled(newStatus);
         onStatusChange?.(platform, newStatus);
+      } else {
+        // API'den success: false dönerse
+        alert('AI durumu güncellenemedi.');
       }
     } catch (error) {
       console.error('AI durumu güncellenirken hata:', error);
@@ -90,7 +100,7 @@ const AIToggle: React.FC<AIToggleProps> = ({ platform, onStatusChange, isSidebar
             {isEnabled ? 'Açık' : 'Kapalı'}
           </span>
         )}
-        
+
         <button
           onClick={handleToggle}
           disabled={isUpdating}

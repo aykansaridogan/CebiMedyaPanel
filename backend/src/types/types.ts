@@ -62,5 +62,5 @@ export interface AuthContextType {
 export interface AgentStatus {
   user_id: number; // Backend'deki user_id'ye uygun olarak number yapıldı
   platform: Platform;
-  status: boolean;
+   status: 'active' | 'inactive'; // <<< İŞTE BU SATIRI DEĞİŞTİRDİK!
 }

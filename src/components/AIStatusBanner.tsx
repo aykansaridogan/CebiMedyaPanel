@@ -6,7 +6,7 @@ interface AIStatusBannerProps {
   platform: string;
 }
 
-const AIStatusBanner: React.FC<AIStatusBannerProps> = ({ isAIEnabled, platform }) => {
+const AIStatusBanner: React.FC<AIStatusBannerProps> = ({ isAIEnabled }) => {
   if (isAIEnabled) {
     return (
       <div className="flex items-center space-x-3 p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
